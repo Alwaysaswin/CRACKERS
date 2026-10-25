@@ -14,77 +14,61 @@ const DB_NAME = "crackers_store";
 let db = null;
 let dbError = null;
 
-// 1. Open the port IMMEDIATELY so Render detects it right away
+// 1. Open port IMMEDIATELY so Render marks the deploy as LIVE
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Server is listening on port ${PORT}`);
-  connectToDatabase();
+  console.log(`🚀 Server listening on port ${PORT}`);
+  connectDB();
 });
 
-// 2. Connect to MongoDB asynchronously
-async function connectToDatabase() {
+// 2. Connect to MongoDB Atlas in the background
+async function connectDB() {
   if (!MONGO_URI) {
-    dbError = "MONGO_URI is missing in Render Environment Variables!";
-    console.error("❌ " + dbError);
+    dbError = "MONGO_URI is not set in Render -> Environment tab";
+    console.error("⚠️ " + dbError);
     return;
   }
-
   try {
-    console.log("⏳ Connecting to MongoDB Atlas...");
-    const client = new MongoClient(MONGO_URI, {
-      serverSelectionTimeoutMS: 10000,
-    });
+    const client = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 10000 });
     await client.connect();
     db = client.db(DB_NAME);
     dbError = null;
-    console.log(`✅ Connected to MongoDB database: ${DB_NAME}`);
+    console.log(`✅ Connected to MongoDB Atlas: ${DB_NAME}`);
   } catch (err) {
     dbError = err.message;
-    console.error("❌ MongoDB Connection Error:", err.message);
+    console.error("❌ MongoDB Atlas connection failed:", err.message);
   }
 }
 
-// Health check route (visit your Render URL in browser to see live status)
 app.get("/", (req, res) => {
   res.json({
-    server: "online",
-    database: db ? "connected ✅" : "disconnected ❌",
-    error: dbError,
+    status: "Render Server is Live 🎉",
+    databaseConnected: !!db,
+    databaseError: dbError
   });
 });
 
-// GET all categories
 app.get("/api/categories", async (req, res) => {
-  if (!db) return res.status(503).json({ error: dbError || "Database connecting..." });
-  const categories = await db
-    .collection("categories")
-    .find({ isActive: true })
-    .sort({ displayOrder: 1 })
-    .toArray();
+  if (!db) return res.status(503).json({ error: dbError || "DB not connected" });
+  const categories = await db.collection("categories").find({ isActive: true }).sort({ displayOrder: 1 }).toArray();
   res.json(categories);
 });
 
-// GET all products
 app.get("/api/products", async (req, res) => {
-  if (!db) return res.status(503).json({ error: dbError || "Database connecting..." });
+  if (!db) return res.status(503).json({ error: dbError || "DB not connected" });
   const { category } = req.query;
   const filter = category && category !== "All" ? { category } : {};
   const products = await db.collection("products").find(filter).toArray();
   res.json(products);
 });
 
-// POST a new order
 app.post("/api/orders", async (req, res) => {
-  if (!db) return res.status(503).json({ error: dbError || "Database connecting..." });
-  const orderData = req.body;
+  if (!db) return res.status(503).json({ error: dbError || "DB not connected" });
   const newOrder = {
-    ...orderData,
+    ...req.body,
     orderNumber: "SPK-" + Date.now().toString().slice(-6),
     status: "CONFIRMED",
     createdAt: new Date(),
   };
   await db.collection("orders").insertOne(newOrder);
-  res.status(201).json({
-    message: "Order saved to MongoDB!",
-    orderNumber: newOrder.orderNumber,
-  });
+  res.status(201).json({ message: "Order saved!", orderNumber: newOrder.orderNumber });
 });
